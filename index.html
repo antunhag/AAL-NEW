@@ -155,6 +155,7 @@
   }
   .pchip .n{font-family:"Oswald"; font-size:18px; font-weight:700; line-height:1;}
   .pchip .nm{font-size:11px; color:var(--ink-dim); line-height:1.2; max-width:100%; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .pchip .pos{font-size:8.5px; color:var(--ink-dim); letter-spacing:.05em; font-weight:700; opacity:.7; margin-top:1px;}
   .pchip .badges{position:absolute; top:4px; right:4px; display:flex; gap:2px;}
   .pchip .b{width:9px; height:12px; border-radius:2px;}
   .pchip .b.y{background:var(--yellow);}
@@ -256,17 +257,30 @@
   var STORAGE_KEY = "futsalBancoSub15.v1";
   var uid = function(){ return Math.random().toString(36).slice(2,10) + Date.now().toString(36); };
 
+  var POSITIONS = ["Guarda-Redes","Fixo","Ala","Pivô","Universal"];
+  var POS_ABBR = {"Guarda-Redes":"GR","Fixo":"FX","Ala":"AL","Pivô":"PV","Universal":"UN"};
+  function isGoleiro(p){ return !!p && p.pos === "Guarda-Redes"; }
+  function periodLabel(n){
+    n = n||1;
+    if(n===1) return "1ª Parte";
+    if(n===2) return "2ª Parte";
+    if(n===3) return "Prolongamento 1";
+    if(n===4) return "Prolongamento 2";
+    return n+"ª Parte";
+  }
+
   var defaultState = function(){ return {
     activeTab: "plantel",
-    roster: [],            // {id, num, name}
+    roster: [],            // {id, num, name, pos}
     match: null,           // {id, jornada, date, adversario, local, convocadoIds:[]}
     started: false,        // kickoff happened at least once
     finished: false,
     onCourt: [],           // player ids currently on court
-    onCourtSince: {},      // playerId -> ms mark (match clock time) when came on, while clock running
-    secondsPlayed: {},     // playerId -> accumulated seconds
+    onCourtSince: {},      // playerId -> ms mark (period clock time) when came on, while clock running
+    secondsPlayed: {},     // playerId -> accumulated seconds (soma de todas as partes)
     events: [],            // chronological event log
     clock: { running:false, elapsedMs:0, startTs:null },
+    period: 1,             // parte atual (1ª, 2ª, prolongamentos...)
     score: { nos:0, advers:0 },
     treatment: null,       // {playerId, startedAtMs}
     periodFouls: 0,
@@ -281,7 +295,11 @@
       if(!raw) return defaultState();
       var parsed = JSON.parse(raw);
       var base = defaultState();
-      return Object.assign(base, parsed);
+      var merged = Object.assign(base, parsed);
+      // migração: jogadores/jogos gravados antes de existir "posição"/"parte"
+      (merged.roster||[]).forEach(function(p){ if(!p.pos) p.pos = "Universal"; });
+      if(!merged.period) merged.period = 1;
+      return merged;
     }catch(e){ return defaultState(); }
   }
   function save(){
@@ -313,22 +331,77 @@
   function settleAll(atMs){ state.onCourt.forEach(function(id){ settlePlayer(id, atMs); }); }
   function markOnSince(id, atMs){ state.onCourtSince[id] = atMs; }
 
-  function toggleClock(){
+  function hasKickoffThisPeriod(){
+    return state.events.some(function(e){ return e.type==="kickoff" && e.period===state.period; });
+  }
+  function clockButtonLabel(){
+    if(state.clock.running) return "Pausar";
+    if(hasKickoffThisPeriod()) return "Retomar";
+    return state.period<=1 ? "Iniciar Jogo" : "Iniciar "+periodLabel(state.period);
+  }
+
+  // Pausar SEMPRE pede motivo (pedido de tempo ou outro) — jogo é a tempo corrido,
+  // por isso qualquer paragem tem de ficar justificada no registo.
+  var PAUSE_REASONS = [
+    {id:"tempo_nos", label:"Pedido de Tempo — Nós"},
+    {id:"tempo_advers", label:"Pedido de Tempo — Adversário"},
+    {id:"outro", label:"Outro motivo (lesão, árbitro, etc.)"}
+  ];
+  function requestPause(){
+    if(!state.clock.running){ resumeOrStart(); return; }
+    openSheet(
+      '<h3>Motivo da pausa</h3><div class="sub">O relógio só para com um motivo registado</div>'+
+      '<div class="actiongrid">'+PAUSE_REASONS.map(function(r){
+        return '<button class="abtn" data-reason="'+r.id+'">'+esc(r.label)+'</button>';
+      }).join("")+'</div>'+
+      '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="fechar">Cancelar</button></div>',
+      function(sheet){
+        sheet.addEventListener("click", function(e){
+          var b = e.target.closest("[data-reason]");
+          if(b){ doPause(b.getAttribute("data-reason")); closeSheet(); return; }
+          if(e.target.closest("[data-act='fechar']")) closeSheet();
+        });
+      }
+    );
+  }
+  function doPause(reasonId){
+    var reason = PAUSE_REASONS.find(function(r){return r.id===reasonId;});
+    var atMs = nowElapsedMs();
+    state.clock.elapsedMs = atMs;
+    state.clock.running = false;
+    state.clock.startTs = null;
+    settleAll(atMs);
+    logEvent("pausa", null, {label:"Pausa — "+(reason?reason.label:"Outro motivo"), reasonId: reasonId});
+    save(); render();
+  }
+  function resumeOrStart(){
+    var atMs = nowElapsedMs();
+    state.clock.running = true;
+    state.clock.startTs = Date.now();
+    state.onCourt.forEach(function(id){ markOnSince(id, atMs); });
+    state.started = true;
+    var label = hasKickoffThisPeriod() ? "Relógio retomado" : ("Início da "+periodLabel(state.period));
+    logEvent("kickoff", null, {label: label});
+    save(); render();
+  }
+  function toggleClock(){ requestPause(); }
+
+  // Termina a parte atual: assenta os tempos de jogo, regista o fim, e zera
+  // o relógio para a parte seguinte começar do 00:00.
+  function endPeriod(){
     var atMs = nowElapsedMs();
     if(state.clock.running){
       state.clock.elapsedMs = atMs;
       state.clock.running = false;
       state.clock.startTs = null;
       settleAll(atMs);
-      logEvent("intervalo", null, {label:"Relógio parado"});
-    } else {
-      state.clock.running = true;
-      state.clock.startTs = Date.now();
-      state.onCourt.forEach(function(id){ markOnSince(id, atMs); });
-      state.started = true;
-      logEvent("kickoff", null, {label: state.events.some(e=>e.type==='kickoff') ? "Relógio retomado" : "Início do jogo"});
     }
+    logEvent("fim_periodo", null, {label:"Fim da "+periodLabel(state.period), duracaoSec: Math.round(atMs/1000)});
+    state.clock.elapsedMs = 0;
+    state.period = (state.period||1) + 1;
+    state.periodFouls = 0;
     save(); render();
+    toast(periodLabel(state.period)+" pronta a começar — relógio a 00:00");
   }
 
   function playerSeconds(id){
@@ -359,20 +432,70 @@
     var ev = Object.assign({
       id: uid(), type: type, playerId: playerId||null,
       ms: ms, min: Math.floor(ms/60000), sec: Math.floor((ms%60000)/1000),
+      period: state.period||1,
       ts: Date.now(), clockTime: new Date().toISOString()
     }, extra||{});
     state.events.push(ev);
     return ev;
   }
   function eventMs(e){ return (e.ms!=null) ? e.ms : (e.min||0)*60000 + (e.sec||0)*1000; }
-  function eventStamp(e){ return fmtMinSec(eventMs(e)); }
+  function eventStamp(e){ return periodLabel(e.period||1)+" · "+fmtMinSec(eventMs(e)); }
 
   // ================= ACTIONS =================
-  function addPlayer(num, name){
+  function addPlayer(num, name, pos){
     name = (name||"").trim();
     if(!name) return;
-    state.roster.push({id:uid(), num:(num||"").toString().trim(), name:name});
+    pos = POSITIONS.indexOf(pos)>-1 ? pos : "Universal";
+    state.roster.push({id:uid(), num:(num||"").toString().trim(), name:name, pos:pos});
     save(); render();
+  }
+
+  // ---------- Importar plantel a partir do workbook (fonte única de verdade) ----------
+  function normPos(s){
+    return (s||"").toString().trim().toLowerCase()
+      .normalize("NFD").replace(/[̀-ͯ]/g,"")
+      .replace(/[^a-z]/g,"");
+  }
+  var POS_NORM_MAP = (function(){
+    var m = {};
+    POSITIONS.forEach(function(p){ m[normPos(p)] = p; });
+    return m;
+  })();
+  function guessPosition(fields){
+    for(var i=2;i<fields.length;i++){
+      var np = normPos(fields[i]);
+      if(POS_NORM_MAP[np]) return POS_NORM_MAP[np];
+    }
+    return "Universal";
+  }
+  // Atualiza/acrescenta a partir do texto colado (linhas do Excel). NUNCA remove
+  // ninguém sozinho — isso continua a ser uma ação manual (botão Remover), para
+  // não perder o histórico de jogos já registados com esse atleta.
+  function importRosterFromText(text){
+    var lines = (text||"").split(/\r?\n/).map(function(l){return l.trim();}).filter(Boolean);
+    var added=0, updated=0, skipped=0;
+    lines.forEach(function(line){
+      var fields = (line.indexOf("\t")>-1 ? line.split("\t") : line.split(",")).map(function(f){return (f||"").trim();});
+      if(fields.length<2){ skipped++; return; }
+      var numRaw = fields[0], nome = fields[1];
+      if(/^n[º°o]?$/i.test(numRaw) || /^nome/i.test(nome)){ return; } // cabeçalho
+      if(!nome){ skipped++; return; }
+      var pos = guessPosition(fields);
+      var existing = state.roster.find(function(p){
+        return (numRaw && p.num===numRaw) || (p.name.toLowerCase()===nome.toLowerCase());
+      });
+      if(existing){
+        existing.num = numRaw || existing.num;
+        existing.name = nome;
+        existing.pos = pos;
+        updated++;
+      } else {
+        state.roster.push({id:uid(), num:numRaw, name:nome, pos:pos});
+        added++;
+      }
+    });
+    save(); render();
+    toast(added+" novo(s), "+updated+" atualizado(s)"+(skipped?(", "+skipped+" ignorada(s)"):""));
   }
   function removePlayer(id){
     if(state.match && state.match.convocadoIds.indexOf(id)>-1){ toast("Já está convocado — remove da convocatória primeiro"); return; }
@@ -457,13 +580,6 @@
       state.events = state.events.filter(function(e){return e.id!==ev.id;});
     });
     save(); render();
-  }
-  function newPeriod(){
-    if(state.clock.running) toggleClock();
-    state.periodFouls = 0;
-    logEvent("periodo", null, {label:"Novo período / intervalo"});
-    save(); render();
-    toast("Faltas de período reiniciadas");
   }
   function startTreatment(playerId){
     if(state.treatment){ toast("Já há um atendimento em curso"); return; }
@@ -567,8 +683,8 @@
     var t = "["+eventStamp(e)+"] ";
     switch(e.type){
       case "kickoff": return t+(e.label||"Início/retoma do relógio");
-      case "intervalo": return t+(e.label||"Relógio parado");
-      case "periodo": return t+(e.label||"Novo período");
+      case "pausa": return t+(e.label||"Pausa");
+      case "fim_periodo": return t+(e.label||"Fim da parte")+" ("+fmtMinSec((e.duracaoSec||0)*1000)+" jogados)";
       case "golo":
         var assistP = e.assistId ? playerById(e.assistId) : null;
         var lineupNames = (e.lineup||[]).map(function(id){var pp=playerById(id); return pp? "#"+pp.num : "?";}).join(",");
@@ -690,25 +806,54 @@
     );
   }
 
+  // Executa a troca, mas se guarda-redes<->jogador de campo, pede confirmação primeiro.
+  function attemptSub(outId, inId){
+    var outP = playerById(outId), inP = playerById(inId);
+    if(outP && inP && isGoleiro(outP) !== isGoleiro(inP)){
+      openSheet(
+        '<h3>Confirmar troca de posição?</h3>'+
+        '<div class="sub">Sai #'+esc(outP.num)+' '+esc(outP.name)+' ('+esc(outP.pos)+') — entra #'+esc(inP.num)+' '+esc(inP.name)+' ('+esc(inP.pos)+'). '+
+        (isGoleiro(outP) ? 'Vais ficar sem guarda-redes em quadra.' : 'Vais colocar um guarda-redes a jogar como jogador de campo.')+'</div>'+
+        '<div class="btn-row" style="margin-top:14px;"><button class="btn primary block" data-act="confirmar">Confirmar mesmo assim</button></div>'+
+        '<div class="btn-row" style="margin-top:8px;"><button class="btn ghost block" data-act="cancelar">Cancelar</button></div>',
+        function(sheet){
+          sheet.addEventListener("click", function(e){
+            if(e.target.closest("[data-act='confirmar']")){ doSub(outId, inId); closeSheet(); }
+            if(e.target.closest("[data-act='cancelar']")) closeSheet();
+          });
+        }
+      );
+      return;
+    }
+    doSub(outId, inId);
+  }
+  function sortByPositionMatch(list, refPos){
+    return list.slice().sort(function(a,b){
+      var am = (a.pos===refPos)?0:1, bm = (b.pos===refPos)?0:1;
+      return am - bm;
+    });
+  }
   function openSubPicker(outId){
-    var bench = benchIds().map(playerById).filter(Boolean);
+    var outP = playerById(outId);
+    var bench = sortByPositionMatch(benchIds().map(playerById).filter(Boolean), outP && outP.pos);
     if(bench.length===0){ toast("Não há suplentes convocados no banco"); return; }
     openSheet(
-      '<h3>Quem entra?</h3><div class="sub">Sai #'+esc((playerById(outId)||{}).num)+' '+esc((playerById(outId)||{}).name)+'</div>'+
+      '<h3>Quem entra?</h3><div class="sub">Sai #'+esc(outP.num)+' '+esc(outP.name)+' ('+esc(outP.pos)+') — sugeridos primeiro os da mesma posição</div>'+
       '<div class="pgrid">'+bench.map(function(p){
-        return '<div class="pchip" data-in="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
+        return '<div class="pchip" data-in="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
       }).join("")+'</div>'+
       '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="fechar">Cancelar</button></div>',
       function(sheet){
         sheet.addEventListener("click", function(e){
           var chip = e.target.closest("[data-in]");
-          if(chip){ doSub(outId, chip.getAttribute("data-in")); closeSheet(); return; }
+          if(chip){ var inId=chip.getAttribute("data-in"); closeSheet(); attemptSub(outId, inId); return; }
           if(e.target.closest("[data-act='fechar']")) closeSheet();
         });
       }
     );
   }
   function openEntraPicker(inId){
+    var inP = playerById(inId);
     if(state.onCourt.length<5){
       state.onCourt.push(inId);
       if(state.clock.running) markOnSince(inId, nowElapsedMs());
@@ -721,17 +866,17 @@
       toast("Entrou em campo");
       return;
     }
-    var onc = state.onCourt.map(playerById).filter(Boolean);
+    var onc = sortByPositionMatch(state.onCourt.map(playerById).filter(Boolean), inP && inP.pos);
     openSheet(
-      '<h3>Quem sai?</h3><div class="sub">Quadra completa (5) — escolhe quem sai para entrar #'+esc((playerById(inId)||{}).num)+'</div>'+
+      '<h3>Quem sai?</h3><div class="sub">Quadra completa (5) — escolhe quem sai para entrar #'+esc(inP.num)+' ('+esc(inP.pos)+')</div>'+
       '<div class="pgrid">'+onc.map(function(p){
-        return '<div class="pchip" data-out="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
+        return '<div class="pchip" data-out="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
       }).join("")+'</div>'+
       '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="fechar">Cancelar</button></div>',
       function(sheet){
         sheet.addEventListener("click", function(e){
           var chip = e.target.closest("[data-out]");
-          if(chip){ doSub(chip.getAttribute("data-out"), inId); closeSheet(); return; }
+          if(chip){ var outId=chip.getAttribute("data-out"); closeSheet(); attemptSub(outId, inId); return; }
           if(e.target.closest("[data-act='fechar']")) closeSheet();
         });
       }
@@ -807,19 +952,29 @@
     var rows = state.roster.slice().sort(function(a,b){ return (parseInt(a.num)||999)-(parseInt(b.num)||999); });
     return ''+
       '<div class="card">'+
-        '<div class="section-title">Adicionar atleta</div>'+
+        '<div class="section-title">Importar do plantel oficial (Excel)</div>'+
+        '<div class="hint">O workbook é a fonte única de verdade. Copia as linhas da folha "Plantel" (Nº, Nome, Posição — podes colar a linha toda, mesmo com mais colunas) e cola aqui. Atualiza quem já existe e acrescenta quem for novo; não remove ninguém sozinho.</div>'+
+        '<textarea class="exportbox" id="importRosterArea" placeholder="Cola aqui as linhas do Excel..." style="min-height:90px; margin-top:8px;"></textarea>'+
+        '<button class="btn primary block" id="btnImportRoster" style="margin-top:8px;">Importar / Atualizar plantel</button>'+
+      '</div>'+
+      '<div class="card">'+
+        '<div class="section-title">Adicionar atleta manualmente</div>'+
         '<div class="row2">'+
           '<div class="field"><label>Nº</label><input id="inNum" inputmode="numeric" placeholder="7"></div>'+
           '<div class="field"><label>Nome</label><input id="inName" placeholder="Nome do atleta"></div>'+
         '</div>'+
+        '<div class="field"><label>Posição</label><select id="inPos">'+
+          POSITIONS.map(function(p){ return '<option value="'+esc(p)+'">'+esc(p)+'</option>'; }).join("")+
+        '</select></div>'+
         '<button class="btn primary block" id="btnAddPlayer">Adicionar ao plantel</button>'+
-        '<div class="hint">Preenches isto uma vez no início da época — depois só selecionas os convocados jogo a jogo.</div>'+
+        '<div class="hint">Preenches isto uma vez no início da época — a posição ajuda a encontrar rápido quem pode substituir quem (ex.: o guarda-redes só aparece sugerido para outro guarda-redes).</div>'+
       '</div>'+
       '<div class="card">'+
         '<div class="section-title">Plantel ('+rows.length+')</div>'+
         (rows.length===0 ? '<div class="empty">Ainda sem atletas. Adiciona o plantel acima.</div>' :
           rows.map(function(p){
-            return '<div class="list-row"><div><div class="lname">#'+esc(p.num)+' '+esc(p.name)+'</div></div>'+
+            return '<div class="list-row"><div><div class="lname">#'+esc(p.num)+' '+esc(p.name)+'</div>'+
+                   '<div class="lsub">'+esc(p.pos||"Universal")+'</div></div>'+
                    '<button class="btn sm ghost" data-rm="'+p.id+'">Remover</button></div>';
           }).join(""))+
       '</div>'+
@@ -905,7 +1060,7 @@
         '<div class="pgrid">'+conv.map(function(p){
           var sel = state.onCourt.indexOf(p.id)>-1;
           return '<div class="pchip'+(sel?' selected':'')+'" data-tit="'+p.id+'">'+
-                 '<div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
+                 '<div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
         }).join("")+'</div>')+
         '<div class="hint">Toca para marcar quem começa em quadra (máx. 5). Podes ajustar tudo depois com substituições.</div>'+
         '<button class="btn primary block" id="btnGoLive" style="margin-top:12px;" '+((state.onCourt.length===0)?'disabled':'')+'>Ir para o jogo →</button>'+
@@ -924,8 +1079,9 @@
       '<div class="scoreboard">'+
         '<div class="score-side"><div class="lbl">Nós</div><div class="val num">'+state.score.nos+'</div></div>'+
         '<div class="clock-mid">'+
+          '<div class="lbl" style="margin-bottom:2px;">'+esc(periodLabel(state.period))+'</div>'+
           '<div class="time num" id="clockTime">'+fmtMinSec(nowElapsedMs())+'</div>'+
-          '<button class="clock-btn" id="btnClock">'+(clockRunning?"Pausar":(state.started?"Retomar":"Iniciar jogo"))+'</button>'+
+          '<button class="clock-btn" id="btnClock">'+clockButtonLabel()+'</button>'+
         '</div>'+
         '<div class="score-side"><div class="lbl">'+esc(state.match.adversario||"Advers.")+'</div><div class="val num">'+state.score.advers+'</div>'+
           '<button class="oppgoal" id="btnOppGoal">+1 golo advers.</button></div>'+
@@ -942,11 +1098,13 @@
         '<div class="pgrid">'+bench.map(function(p){ return playerChip(p, false); }).join("")+'</div>')+
       '</div>'+
       '<div class="card">'+
-        '<div class="section-title">Faltas neste período: '+state.periodFouls+'</div>'+
-        '<button class="btn block" id="btnNewPeriod">Novo período / intervalo</button>'+
+        '<div class="section-title">'+esc(periodLabel(state.period))+' · Faltas: '+state.periodFouls+'</div>'+
+        '<div class="hint">Pausas só com motivo (pedido de tempo). Quando a parte acabar, usa o botão abaixo — o relógio da parte seguinte começa do 00:00.</div>'+
+        '<button class="btn block" id="btnEndPeriod" style="margin-top:10px;">Terminar '+esc(periodLabel(state.period))+'</button>'+
       '</div>';
   }
 
+  function posAbbr(p){ return (p && POS_ABBR[p.pos]) || "UN"; }
   function playerChip(p, onCourt){
     var yc = state.events.filter(function(e){return e.type==="cartao_amarelo" && e.playerId===p.id;}).length;
     var rc = state.events.filter(function(e){return e.type==="cartao_vermelho" && e.playerId===p.id;}).length;
@@ -956,6 +1114,7 @@
       '<div class="badges">'+(yc?'<span class="b y"></span>':'')+(rc?'<span class="b r"></span>':'')+'</div>'+
       (inTreat?'<span class="inj">🩹</span>':'')+
       '<div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div>'+
+      '<div class="pos">'+esc(posAbbr(p))+'</div>'+
       (onCourt?'<div class="min">'+mins+"'</div>":'')+
       '</div>';
   }
@@ -1001,7 +1160,13 @@
 
     var addBtn = document.getElementById("btnAddPlayer");
     if(addBtn) addBtn.onclick = function(){
-      addPlayer(document.getElementById("inNum").value, document.getElementById("inName").value);
+      addPlayer(document.getElementById("inNum").value, document.getElementById("inName").value, document.getElementById("inPos").value);
+    };
+    var importBtn = document.getElementById("btnImportRoster");
+    if(importBtn) importBtn.onclick = function(){
+      var ta = document.getElementById("importRosterArea");
+      if(ta && ta.value.trim()){ importRosterFromText(ta.value); ta.value=""; }
+      else { toast("Cola primeiro o texto copiado do Excel"); }
     };
     view.querySelectorAll("[data-rm]").forEach(function(b){
       b.onclick = function(){ removePlayer(b.getAttribute("data-rm")); };
@@ -1033,8 +1198,8 @@
     if(btnClock) btnClock.onclick = toggleClock;
     var btnOpp = document.getElementById("btnOppGoal");
     if(btnOpp) btnOpp.onclick = doOppGoal;
-    var btnNewPeriod = document.getElementById("btnNewPeriod");
-    if(btnNewPeriod) btnNewPeriod.onclick = newPeriod;
+    var btnEndPeriod = document.getElementById("btnEndPeriod");
+    if(btnEndPeriod) btnEndPeriod.onclick = endPeriod;
     var btnEndTreatTop = document.getElementById("btnEndTreatFromTop");
     if(btnEndTreatTop) btnEndTreatTop.onclick = endTreatment;
 
