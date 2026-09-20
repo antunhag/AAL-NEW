@@ -4,7 +4,7 @@
 // muda o nome do CACHE abaixo (ex.: 'banco-sub15-v3') para forçar o telemóvel
 // a ir buscar a versão nova. Sem isto, o telemóvel continua a mostrar a
 // versão antiga guardada em cache.
-const CACHE = "banco-sub15-v7";
+const CACHE = "banco-sub15-v5";
 const ASSETS = [
   "./",
   "./index.html",
