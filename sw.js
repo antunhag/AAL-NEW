@@ -4,7 +4,7 @@
 // muda o nome do CACHE abaixo (ex.: 'banco-sub15-v3') para forçar o telemóvel
 // a ir buscar a versão nova. Sem isto, o telemóvel continua a mostrar a
 // versão antiga guardada em cache.
-const CACHE = "banco-sub15-v4";
+const CACHE = "banco-sub15-v5";
 const ASSETS = [
   "./",
   "./index.html",
@@ -34,8 +34,15 @@ self.addEventListener("activate", function (event) {
 
 // Estratégia: responde da cache imediatamente (rápido, funciona offline) e,
 // se houver rede, atualiza a cache em segundo plano para a próxima vez.
+//
+// Exceção: plantel.csv nunca passa pela cache — vai sempre à rede, para a
+// sincronização do plantel ver logo a versão mais recente editada no GitHub.
 self.addEventListener("fetch", function (event) {
   if (event.request.method !== "GET") return;
+  if (event.request.url.indexOf("plantel.csv") > -1) {
+    event.respondWith(fetch(event.request));
+    return;
+  }
   var isOwnOrigin = event.request.url.indexOf(self.location.origin) === 0;
 
   event.respondWith(
