@@ -36,11 +36,27 @@ de cada jogo (ou sempre que quiseres testar uma app nova). O ficheiro `.json`
 descarregado pode ser restaurado a qualquer momento com **"📥 Restaurar backup"**,
 mesmo numa instalação completamente nova.
 
+### Descarregar jogos/backups no iPhone
+
+A partir da versão `v8`, os botões "Descarregar" (jogo, histórico, backup) tentam
+primeiro abrir a folha de Partilha do sistema (Partilhar / Guardar em Ficheiros),
+com o nome do ficheiro correto (ex.: `jogo_AdversarioX.txt`). Antes disto, no
+Safari em modo de app instalada, o telemóvel por vezes ignorava o nome pedido e
+guardava a própria página da app como `Banco Sub-15.html` — isso ficou corrigido.
+Em computador/Android continua a descarregar normalmente pelo navegador.
+
 ### Plantel: `plantel.csv`
 
 O ficheiro `plantel.csv` neste repositório é o plantel oficial que a app lê
 automaticamente sempre que abre com rede (e também há um botão para forçar a
 sincronização a qualquer momento, na aba Plantel da app).
+
+**Atenção aos números repetidos:** cada atleta precisa de um número diferente
+no ficheiro. A partir da versão `v9`, se dois atletas tiverem o mesmo número
+por engano, a app já não apaga nenhum deles silenciosamente — cria os dois
+(pode ficar um duplicado a mais por engano de nome, mas nunca perde ninguém) e
+mostra um aviso "⚠️ nº repetido" no ecrã. Ainda assim, o correto é corrigir o
+número no `plantel.csv` assim que possível.
 
 Para atualizar o plantel (entrada/saída de atleta, mudança de posição):
 
@@ -75,7 +91,7 @@ Esta pasta (`index.html`, `manifest.json`, `sw.js`, `icons/`) é publicada tal e
 pelo GitHub Pages. Para publicar uma versão nova:
 
 1. Substitui os ficheiros neste repositório pelos novos (o Claude prepara-os).
-2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v7"`) —
+2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v9"`) —
    tem de mudar a cada atualização.
 3. Aguarda ~1 minuto pelo GitHub Pages e testa em `https://antunhag.github.io/AAL-NEW/`.
 
