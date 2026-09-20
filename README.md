@@ -19,6 +19,23 @@ A app corre inteiramente no telemóvel (HTML/CSS/JS, sem servidor). Os dados de 
 jogo ficam guardados no armazenamento local do telemóvel (`localStorage`) — por isso
 funciona sem sinal, mas também por isso **não sincroniza sozinha** entre aparelhos.
 
+### ⚠️ Cópia de segurança — importante
+
+Um novo deploy dos ficheiros nesta pasta **nunca apaga** o que está guardado no
+telemóvel (plantel, jogo em curso, histórico) — deploy e armazenamento local são
+coisas completamente separadas. O que apaga os dados é:
+
+- Remover o ícone da app do ecrã principal e adicionar de novo (o iOS trata isso
+  como uma instalação nova, com armazenamento vazio).
+- O telemóvel limpar "dados de navegação/site" (manualmente, ou automaticamente
+  ao fim de várias semanas sem abrir a app).
+- Trocar de telemóvel.
+
+Por isso a aba **Plantel** tem um botão **"📤 Descarregar backup"** — usa-o depois
+de cada jogo (ou sempre que quiseres testar uma app nova). O ficheiro `.json`
+descarregado pode ser restaurado a qualquer momento com **"📥 Restaurar backup"**,
+mesmo numa instalação completamente nova.
+
 ### Plantel: `plantel.csv`
 
 O ficheiro `plantel.csv` neste repositório é o plantel oficial que a app lê
@@ -58,10 +75,17 @@ Esta pasta (`index.html`, `manifest.json`, `sw.js`, `icons/`) é publicada tal e
 pelo GitHub Pages. Para publicar uma versão nova:
 
 1. Substitui os ficheiros neste repositório pelos novos (o Claude prepara-os).
-2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v2"`) —
-   tem de mudar a cada atualização, senão os telemóveis continuam a mostrar a versão
-   antiga guardada em cache.
+2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v7"`) —
+   tem de mudar a cada atualização.
 3. Aguarda ~1 minuto pelo GitHub Pages e testa em `https://antunhag.github.io/AAL-NEW/`.
+
+**Se a app abrir e parecer "antiga" logo a seguir a um deploy:** a partir da versão
+`v7`, a app abre sempre a versão mais recente sempre que há rede (só usa a cópia
+guardada no telemóvel quando está mesmo offline) — por isso isto já não devia
+acontecer. Se ainda assim acontecer, é sinal de rede fraca nesse instante; fecha e
+volta a abrir passado uns segundos. (Em versões anteriores a `v7`, a app mostrava
+sempre a cópia em cache primeiro, mesmo com rede — por isso podia parecer "presa"
+numa versão antiga durante algum tempo depois de um deploy. Isso ficou corrigido.)
 
 ## Instalar no telemóvel
 
