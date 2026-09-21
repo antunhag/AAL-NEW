@@ -58,6 +58,41 @@ por engano, a app já não apaga nenhum deles silenciosamente — cria os dois
 mostra um aviso "⚠️ nº repetido" no ecrã. Ainda assim, o correto é corrigir o
 número no `plantel.csv` assim que possível.
 
+### Novidades da versão `v10`
+
+- **Duração de cada parte + validação de minutos.** Ao carregar em "Fim da Parte",
+  a app grava a duração real dessa parte e os minutos jogados por cada atleta
+  *só nessa parte*, e mostra logo uma linha de validação (soma de minutos-jogador
+  vs. 5 × duração da parte) — se não bater certo, sinal de que alguém ficou
+  esquecido de entrar/sair na hora certa.
+- **Jogadores em quadra também nos golos sofridos.** Antes só golos marcados
+  por nós registavam quem estava em quadra; agora golos sofridos também.
+- **Tipo de jogada em qualquer golo.** Depois de registar um golo (nosso ou
+  sofrido) a app pergunta o tipo — Organização ofensiva, Transição, Livre,
+  Penálti, Canto ou Própria baliza — opcional (dá para saltar). Isto já vem
+  pronto a cruzar com as colunas "Tipo" da folha de estatísticas em Excel.
+
+### Novidades da versão `v11`
+
+- **Zona do golo.** Depois de escolher o tipo de jogada, a app pergunta em
+  que zona do campo aconteceu o golo — uma grelha numerada de 1 a 12 (3
+  colunas × 4 linhas de profundidade), também opcional (dá para saltar).
+  Fica registada junto do golo (nosso ou sofrido) e aparece no resumo e nas
+  correções, tal como o tipo. **Jogos já arquivados antes desta versão não
+  ganham este campo retroativamente** — só golos registados a partir de
+  agora (ao vivo ou por correção) podem ter zona.
+
+### Novidades da versão `v12`
+
+- **Botão "🗓️ Gerar timeline"** na aba Resumo (jogo em curso) e em cada jogo
+  do histórico. Descarrega uma página HTML à parte — sem depender da app —
+  com uma linha do tempo visual por atleta: uma barra a mostrar exatamente
+  quando esteve em campo em cada parte, com os golos (⚽, com tipo e zona),
+  cartões e faltas marcados no minuto exato. É calculada sozinha a partir do
+  registo cronológico do jogo (substituições, cartões, faltas, golos) —
+  nada de preencher grelha de minutos à mão. Abre em qualquer navegador e
+  pode ser partilhada como ficheiro.
+
 Para atualizar o plantel (entrada/saída de atleta, mudança de posição):
 
 1. Abre `plantel.csv` neste repositório no GitHub.
@@ -91,7 +126,7 @@ Esta pasta (`index.html`, `manifest.json`, `sw.js`, `icons/`) é publicada tal e
 pelo GitHub Pages. Para publicar uma versão nova:
 
 1. Substitui os ficheiros neste repositório pelos novos (o Claude prepara-os).
-2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v9"`) —
+2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v12"`) —
    tem de mudar a cada atualização.
 3. Aguarda ~1 minuto pelo GitHub Pages e testa em `https://antunhag.github.io/AAL-NEW/`.
 

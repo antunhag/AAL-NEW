@@ -1,7 +1,7 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="pt">
 <head>
-<meta charset="UTF-8">
+<meta charset="utf-8">
 <title>Banco Sub-15</title>
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -194,6 +194,11 @@
   .abtn.yellow{background:color-mix(in srgb, var(--yellow) 22%, var(--surface));}
   .abtn.red{background:color-mix(in srgb, var(--red) 20%, var(--surface)); color:var(--red);}
   .abtn.stop{background:color-mix(in srgb, var(--ink-dim) 18%, var(--surface));}
+  .zonegrid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-top:10px;}
+  .zonegrid .zbtn{
+    padding:16px 6px; border-radius:12px; border:1px solid var(--line); background:var(--surface-2);
+    font-weight:700; font-size:16px; text-align:center; cursor:pointer; color:var(--ink);
+  }
 
   /* ---------- log ---------- */
   .logline{display:flex; gap:8px; padding:8px 0; border-bottom:1px solid var(--line); font-size:13px; align-items:flex-start;}
@@ -227,13 +232,13 @@
   .list-row .lsub{font-size:11.5px; color:var(--ink-dim);}
 </style>
 
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+
+<link rel="manifest" href="./manifest.json">
+<meta name="theme-color" content="#1F7A4D">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Banco Sub-15">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="theme-color" content="#1F7A4D">
+<link rel="apple-touch-icon" href="./icons/apple-touch-icon.png">
 </head>
 <body>
 <div class="topbar">
@@ -260,6 +265,27 @@
 
   var POSITIONS = ["Guarda-Redes","Fixo","Ala","Pivô","Universal"];
   var POS_ABBR = {"Guarda-Redes":"GR","Fixo":"FX","Ala":"AL","Pivô":"PV","Universal":"UN"};
+
+  // Tipo de jogada que originou o golo — igual às categorias usadas na folha de
+  // estatísticas em Excel (ORG/TRS/LVR/PNT/CNT/PPB), para que o registo da app
+  // já venha pronto a cruzar com esse modelo.
+  var TIPOS_GOLO = [
+    {id:"org", abbr:"ORG", label:"Organização ofensiva"},
+    {id:"trs", abbr:"TRS", label:"Transição"},
+    {id:"lvr", abbr:"LVR", label:"Livre (frontal/lateral)"},
+    {id:"pnt", abbr:"PNT", label:"Penálti"},
+    {id:"cnt", abbr:"CNT", label:"Canto"},
+    {id:"ppb", abbr:"PPB", label:"Própria baliza"}
+  ];
+  function tipoGoloLabel(id){
+    var t = TIPOS_GOLO.find(function(x){return x.id===id;});
+    return t ? t.label : null;
+  }
+
+  // Zona do golo — grelha 3x4 (3 colunas: esquerda/centro/direita, 4 linhas de
+  // profundidade), numerada 1 a 12. Zona 1-3 = mais perto da baliza adversária
+  // (a nossa, no caso de um golo sofrido), 10-12 = mais perto do meio-campo.
+  var ZONAS_GOLO = [1,2,3,4,5,6,7,8,9,10,11,12];
   function isGoleiro(p){ return !!p && p.pos === "Guarda-Redes"; }
   function periodLabel(n){
     n = n||1;
@@ -285,6 +311,8 @@
     score: { nos:0, advers:0 },
     treatment: null,       // {playerId, startedAtMs}
     periodFouls: 0,
+    periodStartSeconds: {}, // playerId -> secondsPlayed acumulado no início da parte atual
+                             // (baseline para calcular quantos minutos cada um jogou SÓ nesta parte)
     history: []            // archived past matches: {match, rows:[...], events, finishedAt}
   };};
 
@@ -397,10 +425,23 @@
       state.clock.startTs = null;
       settleAll(atMs);
     }
-    logEvent("fim_periodo", null, {label:"Fim da "+periodLabel(state.period), duracaoSec: Math.round(atMs/1000)});
+    var durSec = Math.round(atMs/1000);
+    // Minutos jogados por cada convocado, só nesta parte (para poderes validar:
+    // com 5 em quadra o tempo todo, a soma tem de dar 5 × duração da parte).
+    var playerSeconds = {};
+    (state.match.convocadoIds||[]).forEach(function(id){
+      var total = state.secondsPlayed[id]||0;
+      var before = (state.periodStartSeconds && state.periodStartSeconds[id]) || 0;
+      var delta = Math.max(0, total - before);
+      if(delta>0) playerSeconds[id] = Math.round(delta);
+    });
+    logEvent("fim_periodo", null, {
+      label:"Fim da "+periodLabel(state.period), duracaoSec: durSec, playerSeconds: playerSeconds
+    });
     state.clock.elapsedMs = 0;
     state.period = (state.period||1) + 1;
     state.periodFouls = 0;
+    state.periodStartSeconds = Object.assign({}, state.secondsPlayed);
     save(); render();
     toast(periodLabel(state.period)+" pronta a começar — relógio a 00:00");
   }
@@ -589,9 +630,9 @@
       advers: events.filter(function(e){return e.type==="golo_sofrido";}).length
     };
   }
-  function doGoal(scorerId, assistId){
+  function doGoal(scorerId, assistId, tipo, zona){
     var lineup = state.onCourt.slice();
-    var ev = logEvent("golo", scorerId, {assistId: assistId||null, lineup: lineup});
+    var ev = logEvent("golo", scorerId, {assistId: assistId||null, lineup: lineup, tipo: tipo||null, zona: zona||null});
     state.score = recomputeScoreFor(state.events);
     pushUndo(function(){
       state.events = state.events.filter(function(e){return e.id!==ev.id;});
@@ -600,8 +641,9 @@
     save(); render();
     toast("Golo registado ⚽");
   }
-  function doOppGoal(){
-    var ev = logEvent("golo_sofrido", null, {});
+  function doOppGoal(tipo, zona){
+    var lineup = state.onCourt.slice();
+    var ev = logEvent("golo_sofrido", null, {lineup: lineup, tipo: tipo||null, zona: zona||null});
     state.score = recomputeScoreFor(state.events);
     pushUndo(function(){
       state.events = state.events.filter(function(e){return e.id!==ev.id;});
@@ -740,13 +782,28 @@
     switch(e.type){
       case "kickoff": body = (e.label||"Início/retoma do relógio"); break;
       case "pausa": body = (e.label||"Pausa"); break;
-      case "fim_periodo": body = (e.label||"Fim da parte")+" ("+fmtMinSec((e.duracaoSec||0)*1000)+" jogados)"; break;
+      case "fim_periodo":
+        body = (e.label||"Fim da parte")+" ("+fmtMinSec((e.duracaoSec||0)*1000)+" jogados)";
+        var ps = e.playerSeconds||{};
+        var somaMin = Object.keys(ps).reduce(function(acc,id){return acc+ps[id];},0)/60;
+        var esperadoMin = 5*(e.duracaoSec||0)/60;
+        if(Object.keys(ps).length){
+          body += " · validação: "+Math.round(somaMin*10)/10+" min-jogador (esperado 5×"+fmtMinSec((e.duracaoSec||0)*1000)+" = "+Math.round(esperadoMin*10)/10+")";
+        }
+        break;
       case "golo":
         var assistP = e.assistId ? playerById(e.assistId) : null;
         var lineupNames = (e.lineup||[]).map(function(id){var pp=playerById(id); return pp? "#"+pp.num : "?";}).join(",");
-        body = "GOLO — "+pname+(assistP? (" (assist. #"+assistP.num+" "+assistP.name+")"):"")+(lineupNames? (" | em quadra: "+lineupNames):"");
+        var tipoLbl = tipoGoloLabel(e.tipo);
+        var zonaLbl = e.zona ? ("Zona "+e.zona) : null;
+        body = "GOLO — "+pname+(assistP? (" (assist. #"+assistP.num+" "+assistP.name+")"):"")+(tipoLbl? (" ["+tipoLbl+"]"):"")+(zonaLbl? (" ["+zonaLbl+"]"):"")+(lineupNames? (" | em quadra: "+lineupNames):"");
         break;
-      case "golo_sofrido": body = "Golo sofrido (adversário)"; break;
+      case "golo_sofrido":
+        var lineupNamesAdv = (e.lineup||[]).map(function(id){var pp=playerById(id); return pp? "#"+pp.num : "?";}).join(",");
+        var tipoLblAdv = tipoGoloLabel(e.tipo);
+        var zonaLblAdv = e.zona ? ("Zona "+e.zona) : null;
+        body = "Golo sofrido (adversário)"+(tipoLblAdv? (" ["+tipoLblAdv+"]"):"")+(zonaLblAdv? (" ["+zonaLblAdv+"]"):"")+(lineupNamesAdv? (" | em quadra: "+lineupNamesAdv):"");
+        break;
       case "cartao_amarelo": body = "Cartão amarelo — "+pname; break;
       case "cartao_vermelho": body = "Cartão vermelho — "+pname; break;
       case "falta": body = "Falta — "+pname; break;
@@ -766,7 +823,7 @@
   // Um evento de correção é igual a um evento normal, mas com correcao:true e um
   // momento (parte + minuto:segundo) escolhido manualmente, já que não foi capturado
   // ao vivo. Funciona tanto no jogo em curso como num jogo já arquivado no histórico.
-  function addCorrectionEvent(target, typeId, playerId, assistId, period, min, sec, approx){
+  function addCorrectionEvent(target, typeId, playerId, assistId, period, min, sec, approx, tipoGolo, zonaGolo){
     var typeMap = {
       golo_nos: "golo", golo_advers: "golo_sofrido",
       cartao_amarelo: "cartao_amarelo", cartao_vermelho: "cartao_vermelho", falta: "falta"
@@ -781,6 +838,11 @@
       correcao: true, aproximado: !!approx
     };
     if(type==="golo" && assistId) ev.assistId = assistId;
+    // Golo registado a posteriori: não há como saber quem estava em quadra
+    // nesse momento exato, por isso o "lineup" fica de fora — mas o tipo de
+    // jogada dá para lembrar e registar.
+    if((type==="golo" || type==="golo_sofrido") && tipoGolo) ev.tipo = tipoGolo;
+    if((type==="golo" || type==="golo_sofrido") && zonaGolo) ev.zona = zonaGolo;
     target.events.push(ev);
     return ev;
   }
@@ -821,6 +883,12 @@
       '</select></div>'+
       '<div class="field" id="corrPlayerField"><label>Atleta</label><select id="corrPlayer">'+playersOptions+'</select></div>'+
       '<div class="field" id="corrAssistField"><label>Assistência (opcional)</label><select id="corrAssist"><option value="">—</option>'+playersOptions+'</select></div>'+
+      '<div class="field" id="corrTipoField"><label>Tipo de jogada (opcional)</label><select id="corrTipo"><option value="">—</option>'+
+        TIPOS_GOLO.map(function(t){return '<option value="'+t.id+'">'+esc(t.label)+'</option>';}).join("")+
+      '</select></div>'+
+      '<div class="field" id="corrZonaField"><label>Zona (opcional)</label><select id="corrZona"><option value="">—</option>'+
+        ZONAS_GOLO.map(function(z){return '<option value="'+z+'">Zona '+z+'</option>';}).join("")+
+      '</select></div>'+
       '<div class="row2">'+
         '<div class="field"><label>Parte</label><select id="corrPeriod">'+periodOptions.join("")+'</select></div>'+
         '<div class="field"><label>Momento (MM:SS)</label><div style="display:flex;gap:6px;">'+
@@ -839,10 +907,14 @@
         var typeSel = sheet.querySelector("#corrType");
         var playerField = sheet.querySelector("#corrPlayerField");
         var assistField = sheet.querySelector("#corrAssistField");
+        var tipoField = sheet.querySelector("#corrTipoField");
+        var zonaField = sheet.querySelector("#corrZonaField");
         function syncFields(){
           var t = typeSel.value;
           playerField.style.display = (t!=="golo_advers") ? "" : "none";
           assistField.style.display = (t==="golo_nos") ? "" : "none";
+          tipoField.style.display = (t==="golo_nos" || t==="golo_advers") ? "" : "none";
+          zonaField.style.display = (t==="golo_nos" || t==="golo_advers") ? "" : "none";
         }
         typeSel.addEventListener("change", syncFields);
         syncFields();
@@ -851,12 +923,14 @@
           var t = typeSel.value;
           var playerId = sheet.querySelector("#corrPlayer").value;
           var assistId = sheet.querySelector("#corrAssist").value;
+          var tipoGolo = sheet.querySelector("#corrTipo").value;
+          var zonaGolo = sheet.querySelector("#corrZona").value;
           var period = parseInt(sheet.querySelector("#corrPeriod").value,10)||1;
           var min = parseInt(sheet.querySelector("#corrMin").value,10)||0;
           var sec = parseInt(sheet.querySelector("#corrSec").value,10)||0;
           var approx = sheet.querySelector("#corrApprox").checked;
           if(t!=="golo_advers" && !playerId){ toast("Escolhe o atleta"); return; }
-          cfg.onAdd(t, playerId||null, assistId||null, period, min, sec, approx);
+          cfg.onAdd(t, playerId||null, assistId||null, period, min, sec, approx, tipoGolo||null, zonaGolo||null);
         });
         sheet.querySelectorAll("[data-delev]").forEach(function(b){
           b.addEventListener("click", function(){ cfg.onDelete(b.getAttribute("data-delev")); });
@@ -876,8 +950,8 @@
       players: convocados(),
       maxPeriod: Math.max(state.period||1, 2),
       events: state.events,
-      onAdd: function(t, playerId, assistId, period, min, sec, approx){
-        addCorrectionEvent(state, t, playerId, assistId, period, min, sec, approx);
+      onAdd: function(t, playerId, assistId, period, min, sec, approx, tipoGolo, zonaGolo){
+        addCorrectionEvent(state, t, playerId, assistId, period, min, sec, approx, tipoGolo, zonaGolo);
         state.score = recomputeScoreFor(state.events);
         save(); render();
         toast("Correção adicionada");
@@ -904,8 +978,8 @@
       players: (h.match.convocadoIds||[]).map(playerById).filter(Boolean),
       maxPeriod: maxPeriod,
       events: h.events,
-      onAdd: function(t, playerId, assistId, period, min, sec, approx){
-        addCorrectionEvent(h, t, playerId, assistId, period, min, sec, approx);
+      onAdd: function(t, playerId, assistId, period, min, sec, approx, tipoGolo, zonaGolo){
+        addCorrectionEvent(h, t, playerId, assistId, period, min, sec, approx, tipoGolo, zonaGolo);
         h.score = recomputeScoreFor(h.events);
         rebuildHistoryRows(h);
         save();
@@ -984,6 +1058,212 @@
   function downloadCsv(){
     var fname = "jogo_"+(state.match&&state.match.adversario? state.match.adversario.replace(/\s+/g,"_"):"registo")+".txt";
     downloadText(exportText(), fname);
+  }
+
+  // ---------- Timeline de jogo (página HTML autónoma) ----------
+  // Reconstrói, a partir dos eventos (substituições, cartões, faltas, golos),
+  // quem esteve em campo minuto a minuto em cada parte, e gera uma página HTML
+  // independente (sem depender da app) com uma linha do tempo visual por atleta —
+  // a mesma ideia da folha "Jornada" em Excel, mas calculada sozinha a partir do
+  // registo cronológico, sem grelha manual de minutos.
+  function buildTimelineData(events, playersList, titularIds){
+    var byId = {};
+    playersList.forEach(function(p){ byId[p.id] = p; });
+    var periods = {};
+    (events||[]).forEach(function(e){
+      var per = e.period||1;
+      (periods[per] = periods[per]||[]).push(e);
+    });
+    var periodNums = Object.keys(periods).map(Number).sort(function(a,b){return a-b;});
+    var periodDur = {};
+    (events||[]).forEach(function(e){ if(e.type==="fim_periodo") periodDur[e.period||1] = e.duracaoSec||0; });
+
+    var onCourtSet = {};
+    (titularIds||[]).forEach(function(id){ onCourtSet[id]=true; });
+
+    var runningNos=0, runningAdv=0;
+    var halves = [];
+    periodNums.forEach(function(per){
+      var evs = periods[per].slice().sort(function(a,b){ return (a.ms||0)-(b.ms||0); });
+      var maxMs = evs.reduce(function(m,e){ return Math.max(m, e.ms||0); }, 0);
+      var durSec = periodDur[per] || Math.ceil(maxMs/1000) || 60;
+      var openStart = {};
+      Object.keys(onCourtSet).forEach(function(id){ openStart[id]=0; });
+      var intervals = {}, goals=[], cards=[], fouls=[];
+
+      evs.forEach(function(e){
+        var sec = (e.ms||0)/1000;
+        if(e.type==="substituicao"){
+          var inId=e.playerId, outId=e.outId;
+          if(outId && openStart[outId]!=null){
+            (intervals[outId]=intervals[outId]||[]).push([openStart[outId], sec]);
+            delete openStart[outId]; delete onCourtSet[outId];
+          }
+          openStart[inId]=sec; onCourtSet[inId]=true;
+        } else if(e.type==="cartao_vermelho"){
+          cards.push({sec:sec, playerId:e.playerId, kind:"vermelho"});
+          if(openStart[e.playerId]!=null){
+            (intervals[e.playerId]=intervals[e.playerId]||[]).push([openStart[e.playerId], sec]);
+            delete openStart[e.playerId]; delete onCourtSet[e.playerId];
+          }
+        } else if(e.type==="cartao_amarelo"){
+          cards.push({sec:sec, playerId:e.playerId, kind:"amarelo"});
+        } else if(e.type==="falta"){
+          fouls.push({sec:sec, playerId:e.playerId});
+        } else if(e.type==="golo" || e.type==="golo_sofrido"){
+          if(e.type==="golo") runningNos++; else runningAdv++;
+          goals.push({
+            sec: sec, side: e.type==="golo"?"nos":"adv",
+            scorerId: e.type==="golo"? e.playerId : null,
+            tipo: e.tipo||null, zona: e.zona||null,
+            marcha: [runningNos, runningAdv]
+          });
+        }
+      });
+      Object.keys(openStart).forEach(function(id){
+        (intervals[id]=intervals[id]||[]).push([openStart[id], durSec]);
+      });
+      var playersOut = Object.keys(intervals).map(function(id){
+        var p = byId[id];
+        return { id:id, num: p?p.num:"?", name: p?p.name:"?", intervals: intervals[id] };
+      }).sort(function(a,b){ return (parseInt(a.num)||999)-(parseInt(b.num)||999); });
+
+      halves.push({ label: periodLabel(per), durSec: durSec, players: playersOut, goals: goals, cards: cards, fouls: fouls });
+    });
+    return halves;
+  }
+
+  // Constrói a página HTML completa (independente, sem JS de runtime) com a
+  // timeline de todas as partes de um jogo.
+  function buildTimelineHtml(matchInfo, halves, scoreNos, scoreAdv){
+    function pct2(sec, dur){ return (Math.min(sec,dur)/dur*100).toFixed(2)+"%"; }
+    var halvesHtml = halves.map(function(half){
+      var foulsByPid = {}, cardsByPid = {}, goalsByScorerPid = {};
+      half.fouls.forEach(function(f){ (foulsByPid[f.playerId]=foulsByPid[f.playerId]||[]).push(f); });
+      half.cards.forEach(function(c){ (cardsByPid[c.playerId]=cardsByPid[c.playerId]||[]).push(c); });
+      half.goals.forEach(function(g){ if(g.scorerId) (goalsByScorerPid[g.scorerId]=goalsByScorerPid[g.scorerId]||[]).push(g); });
+
+      var marcha = '<div class="marcha-row">'+half.goals.map(function(g){
+        var cls = g.side==="nos" ? "nos":"adv";
+        return '<span class="marcha-chip '+cls+'">'+g.marcha[0]+'–'+g.marcha[1]+'<span class="t">· '+fmtMinSec(g.sec*1000)+'</span></span>';
+      }).join("") + '</div>';
+
+      var step = half.durSec>2400 ? 600 : (half.durSec>1200?300:60);
+      var ticks = []; for(var t=0; t<=half.durSec; t+=step) ticks.push(t);
+      if(ticks[ticks.length-1]!==half.durSec) ticks.push(half.durSec);
+      var ruler = '<div class="ruler">'+ticks.map(function(t){
+        return '<span style="left:'+pct2(t,half.durSec)+'">'+Math.round(t/60)+"′</span>";
+      }).join("")+'</div>';
+
+      var rows2 = half.players.map(function(p){
+        var bars = p.intervals.map(function(iv){
+          return '<div class="bar" style="left:'+pct2(iv[0],half.durSec)+';width:'+pct2(iv[1]-iv[0],half.durSec)+';" title="'+esc(p.name)+' — '+fmtMinSec(iv[0]*1000)+' a '+fmtMinSec(iv[1]*1000)+'"></div>';
+        }).join("");
+        var marks = "";
+        (goalsByScorerPid[p.id]||[]).forEach(function(g){
+          marks += '<div class="mk goal" style="left:'+pct2(g.sec,half.durSec)+';" title="Golo — '+fmtMinSec(g.sec*1000)+(g.tipo?(' · '+esc(tipoGoloLabel(g.tipo)||g.tipo)):"")+(g.zona?(' · zona '+g.zona):"")+'">⚽</div>';
+        });
+        (cardsByPid[p.id]||[]).forEach(function(c){
+          var isRed = c.kind==="vermelho";
+          marks += '<div class="mk card '+(isRed?"red":"yellow")+'" style="left:'+pct2(c.sec,half.durSec)+';" title="Cartão '+(isRed?"vermelho":"amarelo")+' — '+fmtMinSec(c.sec*1000)+'"></div>';
+        });
+        (foulsByPid[p.id]||[]).forEach(function(f){
+          marks += '<div class="mk foul" style="left:'+pct2(f.sec,half.durSec)+';" title="Falta — '+fmtMinSec(f.sec*1000)+'"></div>';
+        });
+        return '<div class="row"><div class="label"><span class="num">'+esc(p.num)+'</span><span class="nm">'+esc(p.name)+'</span></div>'+
+               '<div class="track">'+bars+marks+'</div></div>';
+      }).join("");
+
+      return '<div class="half-block"><div class="half-title"><h2>'+esc(half.label)+'</h2>'+
+        '<div class="dur">0′ – '+Math.round(half.durSec/60)+'′</div></div>'+
+        marcha + ruler + '<div class="rows">'+rows2+'</div></div>';
+    }).join("");
+
+    var goalsRows = "";
+    halves.forEach(function(half){
+      half.goals.forEach(function(g){
+        var isNos = g.side==="nos";
+        var scorer = isNos ? (playerById(g.scorerId)||{}) : {};
+        goalsRows += '<tr><td>'+esc(half.label)+'</td><td class="num">'+fmtMinSec(g.sec*1000)+'</td>'+
+          '<td class="'+(isNos?"side-nos":"side-adv")+'">'+(isNos?"Nós":esc(matchInfo.adversario||"Adversário"))+'</td>'+
+          '<td>'+(isNos? ("#"+esc(scorer.num||"?")+" "+esc(scorer.name||"")) : "—")+'</td>'+
+          '<td>'+esc(g.tipo?tipoGoloLabel(g.tipo)||g.tipo:"—")+'</td>'+
+          '<td class="num">'+(g.zona||"—")+'</td>'+
+          '<td>'+g.marcha[0]+'–'+g.marcha[1]+'</td></tr>';
+      });
+    });
+
+    return '<!doctype html><html lang="pt"><head><meta charset="utf-8">'+
+    '<meta name="viewport" content="width=device-width, initial-scale=1">'+
+    '<title>Timeline — '+esc(matchInfo.adversario||"Jogo")+'</title>'+
+    '<style>'+
+    ':root{color-scheme:light;--surface-1:#fcfcfb;--page:#f2f1ec;--text-primary:#0b0b0b;--text-secondary:#52514e;--muted:#898781;--grid:#e1e0d9;--border:rgba(11,11,11,.10);--series-1:#2a78d6;--good:#0ca30c;--critical:#d03b3b;--warning:#fab219;--shadow:0 1px 2px rgba(11,11,11,.05),0 6px 20px rgba(11,11,11,.06);}'+
+    '@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--surface-1:#1a1a19;--page:#0d0d0d;--text-primary:#fff;--text-secondary:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--border:rgba(255,255,255,.10);--series-1:#3987e5;--good:#0ca30c;--critical:#e66767;--warning:#c98500;--shadow:0 1px 2px rgba(0,0,0,.35),0 8px 26px rgba(0,0,0,.4);}}'+
+    ':root[data-theme="dark"]{color-scheme:dark;--surface-1:#1a1a19;--page:#0d0d0d;--text-primary:#fff;--text-secondary:#c3c2b7;--muted:#898781;--grid:#2c2c2a;--border:rgba(255,255,255,.10);--series-1:#3987e5;--good:#0ca30c;--critical:#e66767;--warning:#c98500;--shadow:0 1px 2px rgba(0,0,0,.35),0 8px 26px rgba(0,0,0,.4);}'+
+    '*{box-sizing:border-box;}body{margin:0;background:var(--page);color:var(--text-primary);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;padding:20px 16px 40px;}'+
+    '.wrap{max-width:920px;margin:0 auto;display:flex;flex-direction:column;gap:16px;}'+
+    '.card{background:var(--surface-1);border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);padding:18px;}'+
+    '.hdr-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;flex-wrap:wrap;}'+
+    '.hdr-top h1{font-size:15px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-secondary);margin:0;}'+
+    '.hdr-meta{font-size:12.5px;color:var(--muted);}'+
+    '.scoreline{display:flex;align-items:center;justify-content:center;gap:18px;margin-top:14px;}'+
+    '.team{flex:1;text-align:center;font-size:15px;font-weight:600;min-width:0;}.team.home{text-align:right;}.team.away{text-align:left;}'+
+    '.score{font-size:34px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.02em;white-space:nowrap;}.score .dash{color:var(--muted);font-weight:500;margin:0 6px;}'+
+    '.subinfo{text-align:center;font-size:12px;color:var(--muted);margin-top:10px;line-height:1.5;}'+
+    '.half-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}'+
+    '.half-title h2{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;margin:0;}'+
+    '.half-title .dur{font-size:11.5px;color:var(--muted);font-variant-numeric:tabular-nums;}'+
+    '.marcha-row{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;}'+
+    '.marcha-chip{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;padding:3px 8px;border-radius:20px;border:1px solid var(--border);display:flex;align-items:center;gap:4px;}'+
+    '.marcha-chip.nos{color:var(--good);}.marcha-chip.adv{color:var(--critical);}.marcha-chip .t{color:var(--muted);font-weight:500;}'+
+    '.ruler{display:flex;margin:0 0 4px 132px;position:relative;height:16px;}'+
+    '.ruler span{position:absolute;font-size:10px;color:var(--muted);transform:translateX(-50%);font-variant-numeric:tabular-nums;}'+
+    '.row{display:flex;align-items:center;gap:8px;min-height:30px;}'+
+    '.row .label{width:132px;flex:0 0 132px;display:flex;align-items:center;gap:6px;font-size:12px;overflow:hidden;}'+
+    '.row .num{font-weight:800;font-size:10.5px;color:var(--surface-1);background:var(--text-secondary);width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}'+
+    '.row .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'+
+    '.track{flex:1;position:relative;height:14px;border-radius:7px;background:var(--grid);}'+
+    '.bar{position:absolute;top:0;height:14px;border-radius:7px;background:var(--series-1);}'+
+    '.mk{position:absolute;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9.5px;border:2px solid var(--surface-1);}'+
+    '.mk.goal{background:var(--good);color:#fff;}'+
+    '.mk.card{width:10px;height:12px;border-radius:2px;}'+
+    '.mk.card.yellow{background:var(--warning);}'+
+    '.mk.card.red{background:var(--critical);}'+
+    '.mk.foul{background:var(--muted);width:8px;height:8px;}'+
+    '.half-block{margin-top:18px;}.half-block:first-of-type{margin-top:4px;}.rows{display:flex;flex-direction:column;gap:6px;}'+
+    '.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--grid);font-size:11.5px;color:var(--text-secondary);}'+
+    '.legend .it{display:flex;align-items:center;gap:6px;}.legend .sw{width:18px;height:8px;border-radius:4px;background:var(--series-1);}'+
+    '.gtable{width:100%;border-collapse:collapse;font-size:12.5px;margin-top:4px;}'+
+    '.gtable th,.gtable td{text-align:left;padding:7px 8px;border-bottom:1px solid var(--grid);}'+
+    '.gtable th{color:var(--muted);font-weight:600;text-transform:uppercase;font-size:10px;letter-spacing:.04em;}'+
+    '.gtable td.num{font-variant-numeric:tabular-nums;text-align:center;}'+
+    '.gtable .side-nos{color:var(--good);font-weight:700;}.gtable .side-adv{color:var(--critical);font-weight:700;}'+
+    '.tablewrap{overflow-x:auto;}.note{font-size:11.5px;color:var(--muted);line-height:1.5;margin-top:14px;}'+
+    '@media (max-width:480px){.row .label{width:96px;flex-basis:96px;}.ruler{margin-left:96px;}.team{font-size:13px;}.score{font-size:26px;}}'+
+    '</style></head><body><div class="wrap">'+
+    '<div class="card"><div class="hdr-top"><h1>Timeline de jogo</h1>'+
+    '<div class="hdr-meta">'+(matchInfo.jornada?("Jornada "+esc(matchInfo.jornada)+" · "):"")+esc(matchInfo.date||"")+'</div></div>'+
+    '<div class="scoreline"><div class="team home">Nós</div>'+
+    '<div class="score"><span>'+scoreNos+'</span><span class="dash">–</span><span>'+scoreAdv+'</span></div>'+
+    '<div class="team away">'+esc(matchInfo.adversario||"Adversário")+'</div></div>'+
+    (matchInfo.local? ('<div class="subinfo">'+esc(matchInfo.local)+'</div>') : '')+
+    '</div>'+
+    '<div class="card">'+halvesHtml+
+    '<div class="legend"><div class="it"><span class="sw"></span>Em campo</div><div class="it">⚽ Golo marcado</div><div class="it">🟨/🟥 Cartão</div><div class="it">Ponto cinzento — falta</div></div>'+
+    '</div>'+
+    '<div class="card"><div class="half-title" style="margin-bottom:8px;"><h2>Registo de golos</h2></div>'+
+    '<div class="tablewrap"><table class="gtable"><thead><tr><th>Parte</th><th class="num">Tempo</th><th>Equipa</th><th>Marcador</th><th>Tipo</th><th class="num">Zona</th><th>Marcha</th></tr></thead>'+
+    '<tbody>'+goalsRows+'</tbody></table></div></div>'+
+    '<div class="card"><div class="note" style="margin-top:0;">Gerado automaticamente pela app Banco Sub-15 a partir do registo cronológico do jogo.</div></div>'+
+    '</div></body></html>';
+  }
+
+  function downloadTimeline(matchInfo, events, playersList, titularIds, scoreNos, scoreAdv){
+    var halves = buildTimelineData(events, playersList, titularIds);
+    var html = buildTimelineHtml(matchInfo, halves, scoreNos, scoreAdv);
+    var fname = "timeline_"+(matchInfo.adversario? matchInfo.adversario.replace(/\s+/g,"_"):"jogo")+".html";
+    downloadFile(html, fname, "text/html;charset=utf-8");
+    toast("Timeline gerada — abre o ficheiro no navegador");
   }
 
   // ---------- Backup completo (plantel + jogo em curso + histórico) ----------
@@ -1200,11 +1480,50 @@
       function(sheet){
         sheet.addEventListener("click", function(e){
           var chip = e.target.closest("[data-assist]");
-          if(chip){ doGoal(scorerId, chip.getAttribute("data-assist")); closeSheet(); return; }
-          if(e.target.closest("[data-act='sem']")){ doGoal(scorerId, null); closeSheet(); }
+          if(chip){ var aid = chip.getAttribute("data-assist"); closeSheet(); openGoalTypeSheet(function(tipo){ openGoalZoneSheet(function(zona){ doGoal(scorerId, aid, tipo, zona); }); }); return; }
+          if(e.target.closest("[data-act='sem']")){ closeSheet(); openGoalTypeSheet(function(tipo){ openGoalZoneSheet(function(zona){ doGoal(scorerId, null, tipo, zona); }); }); }
         });
       }
     );
+  }
+  // Último passo do registo de um golo (nosso ou sofrido): tipo de jogada.
+  // Opcional — "Não sei / saltar" regista o golo na mesma sem tipo.
+  function openGoalTypeSheet(onPick){
+    openSheet(
+      '<h3>Tipo de jogada?</h3><div class="sub">Opcional — ajuda depois a cruzar com a folha de estatísticas</div>'+
+      '<div class="actiongrid">'+TIPOS_GOLO.map(function(t){
+        return '<button class="abtn" data-tipo="'+t.id+'">'+esc(t.label)+'</button>';
+      }).join("")+'</div>'+
+      '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="saltar">Não sei / saltar</button></div>',
+      function(sheet){
+        sheet.addEventListener("click", function(e){
+          var b = e.target.closest("[data-tipo]");
+          if(b){ closeSheet(); onPick(b.getAttribute("data-tipo")); return; }
+          if(e.target.closest("[data-act='saltar']")){ closeSheet(); onPick(null); }
+        });
+      }
+    );
+  }
+  // Último passo do registo de um golo (nosso ou sofrido): zona do campo.
+  // Opcional — "Não sei / saltar" regista o golo na mesma sem zona.
+  function openGoalZoneSheet(onPick){
+    openSheet(
+      '<h3>Zona do golo?</h3><div class="sub">Opcional — grelha 3×4 (1-3 mais perto da baliza, 10-12 mais perto do meio-campo)</div>'+
+      '<div class="zonegrid">'+ZONAS_GOLO.map(function(z){
+        return '<button class="zbtn" data-zona="'+z+'">'+z+'</button>';
+      }).join("")+'</div>'+
+      '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="saltar">Não sei / saltar</button></div>',
+      function(sheet){
+        sheet.addEventListener("click", function(e){
+          var b = e.target.closest("[data-zona]");
+          if(b){ closeSheet(); onPick(parseInt(b.getAttribute("data-zona"),10)); return; }
+          if(e.target.closest("[data-act='saltar']")){ closeSheet(); onPick(null); }
+        });
+      }
+    );
+  }
+  function openOppGoalSheet(){
+    openGoalTypeSheet(function(tipo){ openGoalZoneSheet(function(zona){ doOppGoal(tipo, zona); }); });
   }
 
   // ================= RENDER =================
@@ -1315,6 +1634,7 @@
       '<div class="btn-row" style="margin-top:12px;">'+
         '<button class="btn primary" data-act="histcopy">📋 Copiar resumo</button>'+
         '<button class="btn" data-act="histdownload">⬇️ Descarregar</button>'+
+        '<button class="btn" data-act="histtimeline">🗓️ Timeline</button>'+
         '<button class="btn" data-act="histcorrigir">✏️ Corrigir</button>'+
       '</div>'+
       '<textarea class="exportbox" id="histExportArea" readonly style="margin-top:10px;">'+esc(text)+'</textarea>'+
@@ -1329,6 +1649,13 @@
           if(act==="histdownload"){
             var fname = "jogo_"+(h.match.adversario? h.match.adversario.replace(/\s+/g,"_"):"registo")+"_"+(h.match.date||"").replace(/\//g,"-")+".txt";
             downloadText(text, fname);
+          }
+          if(act==="histtimeline"){
+            var playersList = (h.match.convocadoIds||[]).map(playerById).filter(Boolean);
+            var titularNums = {};
+            (h.rows||[]).forEach(function(r){ if(r.titular==="Sim") titularNums[String(r.num)] = true; });
+            var titularIds = playersList.filter(function(p){ return titularNums[String(p.num)]; }).map(function(p){return p.id;});
+            downloadTimeline(h.match, h.events, playersList, titularIds, (h.score||{}).nos||0, (h.score||{}).advers||0);
           }
         });
       }
@@ -1444,8 +1771,9 @@
         '<div class="btn-row">'+
           '<button class="btn primary" id="btnCopy">📋 Copiar resumo</button>'+
           '<button class="btn" id="btnDownload">⬇️ Descarregar cópia</button>'+
+          '<button class="btn" id="btnTimeline">🗓️ Gerar timeline</button>'+
         '</div>'+
-        '<div class="hint">Copia e cola aqui no chat — eu lanço os dados na folha "Jogo - Registo" e o "Resumo Época" atualiza-se sozinho.</div>'+
+        '<div class="hint">Copia e cola aqui no chat — eu lanço os dados na folha "Jogo - Registo" e o "Resumo Época" atualiza-se sozinho. A timeline é uma página HTML à parte, com a linha do tempo visual do jogo (entradas/saídas, golos, cartões e faltas).</div>'+
         '<textarea class="exportbox" id="exportArea" readonly>'+esc(exportText())+'</textarea>'+
       '</div>'+
       '<div class="card">'+
@@ -1516,7 +1844,7 @@
     var btnClock = document.getElementById("btnClock");
     if(btnClock) btnClock.onclick = toggleClock;
     var btnOpp = document.getElementById("btnOppGoal");
-    if(btnOpp) btnOpp.onclick = doOppGoal;
+    if(btnOpp) btnOpp.onclick = openOppGoalSheet;
     var btnCorr = document.getElementById("btnCorrigir");
     if(btnCorr) btnCorr.onclick = openCorrectionSheet;
     var btnEndPeriod = document.getElementById("btnEndPeriod");
@@ -1532,6 +1860,11 @@
     if(btnCopy) btnCopy.onclick = copyExport;
     var btnDownload = document.getElementById("btnDownload");
     if(btnDownload) btnDownload.onclick = downloadCsv;
+    var btnTimeline = document.getElementById("btnTimeline");
+    if(btnTimeline) btnTimeline.onclick = function(){
+      if(!state.match){ toast("Sem jogo ativo"); return; }
+      downloadTimeline(state.match, state.events, convocados(), state.titularIds, state.score.nos, state.score.advers);
+    };
     var btnArchive = document.getElementById("btnArchive");
     if(btnArchive) btnArchive.onclick = archiveMatch;
   }
@@ -1566,12 +1899,12 @@
 </script>
 
 <script>
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').catch(function (e) {
-        console.warn('Service worker não registou:', e);
-      });
-    });
-  }
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", function () {
+    navigator.serviceWorker.register("./sw.js").catch(function(){});
+  });
+}
 </script>
-</body></html>
+
+</body>
+</html>
