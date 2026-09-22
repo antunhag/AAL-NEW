@@ -748,6 +748,12 @@
       var cv = state.events.filter(function(e){return e.type==='cartao_vermelho' && e.playerId===p.id;}).length;
       var min = Math.round(playerSeconds(p.id)/60);
       return {
+        // playerId fica gravado junto com a linha para sempre — mesmo que dois
+        // atletas venham a usar o mesmo número de camisola (ex.: um deles muda de
+        // número, ou usam equipamentos diferentes num jogo pontual), a app nunca
+        // mais precisa de adivinhar quem é quem por número+nome ao reabrir este
+        // jogo arquivado (timeline, correções, etc.) — lê o id diretamente.
+        playerId: p.id,
         jornada:jornada, date:date, adversario:adv, num:p.num, nome:p.name,
         convocado:"Sim", titular: (titularIds.indexOf(p.id)>-1)?"Sim":"Não",
         min:min, golos:golos, assist:assist, ca:ca, cv:cv
@@ -851,9 +857,13 @@
   // recuperáveis com precisão depois do jogo arquivado, por isso não se mexe neles).
   function rebuildHistoryRows(h){
     h.rows = h.rows.map(function(r){
-      var p = state.roster.find(function(pp){ return pp.num===r.num && pp.name===r.nome; });
+      // Preferir o playerId gravado na própria linha (jogos arquivados a partir da
+      // v14) — imune a números de camisola repetidos ou trocados depois. Só cai
+      // para o casamento por número+nome em jogos arquivados antes desta versão.
+      var p = r.playerId ? playerById(r.playerId) : state.roster.find(function(pp){ return pp.num===r.num && pp.name===r.nome; });
       if(!p) return r;
       return Object.assign({}, r, {
+        playerId: p.id,
         golos: h.events.filter(function(e){return e.type==='golo' && e.playerId===p.id;}).length,
         assist: h.events.filter(function(e){return e.type==='golo' && e.assistId===p.id;}).length,
         ca: h.events.filter(function(e){return e.type==='cartao_amarelo' && e.playerId===p.id;}).length,
@@ -1125,7 +1135,8 @@
       });
       var playersOut = Object.keys(intervals).map(function(id){
         var p = byId[id];
-        return { id:id, num: p?p.num:"?", name: p?p.name:"?", intervals: intervals[id] };
+        var totalSec = intervals[id].reduce(function(acc,iv){ return acc + Math.max(0, iv[1]-iv[0]); }, 0);
+        return { id:id, num: p?p.num:"?", name: p?p.name:"?", intervals: intervals[id], totalSec: totalSec };
       }).sort(function(a,b){ return (parseInt(a.num)||999)-(parseInt(b.num)||999); });
 
       halves.push({ label: periodLabel(per), durSec: durSec, players: playersOut, goals: goals, cards: cards, fouls: fouls });
@@ -1137,6 +1148,23 @@
   // timeline de todas as partes de um jogo.
   function buildTimelineHtml(matchInfo, halves, scoreNos, scoreAdv){
     function pct2(sec, dur){ return (Math.min(sec,dur)/dur*100).toFixed(2)+"%"; }
+
+    // Minutos totais por jogador, somados ao longo de todas as partes — para a
+    // tabela-resumo no fim da timeline (a barra de cada parte já mostra o
+    // intervalo, mas não o total do jogo todo).
+    var totalsByPid = {};
+    halves.forEach(function(half){
+      half.players.forEach(function(p){
+        var t = totalsByPid[p.id] || (totalsByPid[p.id] = {id:p.id, num:p.num, name:p.name, totalSec:0});
+        t.totalSec += p.totalSec||0;
+      });
+    });
+    var totalsRows = Object.keys(totalsByPid).map(function(id){ return totalsByPid[id]; })
+      .sort(function(a,b){ return b.totalSec-a.totalSec; });
+    var totalsHtml = totalsRows.map(function(t){
+      return '<tr><td>#'+esc(t.num)+' '+esc(t.name)+'</td><td class="num">'+Math.round(t.totalSec/60)+"'"+'</td></tr>';
+    }).join("");
+
     var halvesHtml = halves.map(function(half){
       var foulsByPid = {}, cardsByPid = {}, goalsByScorerPid = {};
       half.fouls.forEach(function(f){ (foulsByPid[f.playerId]=foulsByPid[f.playerId]||[]).push(f); });
@@ -1171,7 +1199,8 @@
           marks += '<div class="mk foul" style="left:'+pct2(f.sec,half.durSec)+';" title="Falta — '+fmtMinSec(f.sec*1000)+'"></div>';
         });
         return '<div class="row"><div class="label"><span class="num">'+esc(p.num)+'</span><span class="nm">'+esc(p.name)+'</span></div>'+
-               '<div class="track">'+bars+marks+'</div></div>';
+               '<div class="track">'+bars+marks+'</div>'+
+               '<div class="mins" title="Minutos em campo nesta parte">'+Math.round((p.totalSec||0)/60)+"'"+'</div></div>';
       }).join("");
 
       return '<div class="half-block"><div class="half-title"><h2>'+esc(half.label)+'</h2>'+
@@ -1222,14 +1251,15 @@
     '.row .label{width:132px;flex:0 0 132px;display:flex;align-items:center;gap:6px;font-size:12px;overflow:hidden;}'+
     '.row .num{font-weight:800;font-size:10.5px;color:var(--surface-1);background:var(--text-secondary);width:18px;height:18px;border-radius:5px;display:flex;align-items:center;justify-content:center;flex:0 0 auto;}'+
     '.row .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}'+
+    '.row .mins{flex:0 0 30px;text-align:right;font-size:11px;font-weight:600;color:var(--text-secondary);font-variant-numeric:tabular-nums;}'+
     '.track{flex:1;position:relative;height:14px;border-radius:7px;background:var(--grid);}'+
     '.bar{position:absolute;top:0;height:14px;border-radius:7px;background:var(--series-1);}'+
-    '.mk{position:absolute;top:50%;transform:translate(-50%,-50%);width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9.5px;border:2px solid var(--surface-1);}'+
+    '.mk{position:absolute;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:8.5px;border:1.5px solid var(--surface-1);}'+
     '.mk.goal{background:var(--good);color:#fff;}'+
-    '.mk.card{width:10px;height:12px;border-radius:2px;}'+
+    '.mk.card{width:5px;height:7px;border-radius:1px;border:none;}'+
     '.mk.card.yellow{background:var(--warning);}'+
     '.mk.card.red{background:var(--critical);}'+
-    '.mk.foul{background:var(--muted);width:8px;height:8px;}'+
+    '.mk.foul{background:var(--muted);width:6px;height:6px;border:none;}'+
     '.half-block{margin-top:18px;}.half-block:first-of-type{margin-top:4px;}.rows{display:flex;flex-direction:column;gap:6px;}'+
     '.legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:16px;padding-top:14px;border-top:1px solid var(--grid);font-size:11.5px;color:var(--text-secondary);}'+
     '.legend .it{display:flex;align-items:center;gap:6px;}.legend .sw{width:18px;height:8px;border-radius:4px;background:var(--series-1);}'+
@@ -1251,6 +1281,9 @@
     '<div class="card">'+halvesHtml+
     '<div class="legend"><div class="it"><span class="sw"></span>Em campo</div><div class="it">⚽ Golo marcado</div><div class="it">🟨/🟥 Cartão</div><div class="it">Ponto cinzento — falta</div></div>'+
     '</div>'+
+    '<div class="card"><div class="half-title" style="margin-bottom:8px;"><h2>Minutos em campo (total do jogo)</h2></div>'+
+    '<div class="tablewrap"><table class="gtable"><thead><tr><th>Atleta</th><th class="num">Min</th></tr></thead>'+
+    '<tbody>'+totalsHtml+'</tbody></table></div></div>'+
     '<div class="card"><div class="half-title" style="margin-bottom:8px;"><h2>Registo de golos</h2></div>'+
     '<div class="tablewrap"><table class="gtable"><thead><tr><th>Parte</th><th class="num">Tempo</th><th>Equipa</th><th>Marcador</th><th>Tipo</th><th class="num">Zona</th><th>Marcha</th></tr></thead>'+
     '<tbody>'+goalsRows+'</tbody></table></div></div>'+
@@ -1652,9 +1685,20 @@
           }
           if(act==="histtimeline"){
             var playersList = (h.match.convocadoIds||[]).map(playerById).filter(Boolean);
-            var titularNums = {};
-            (h.rows||[]).forEach(function(r){ if(r.titular==="Sim") titularNums[String(r.num)] = true; });
-            var titularIds = playersList.filter(function(p){ return titularNums[String(p.num)]; }).map(function(p){return p.id;});
+            // Preferir playerId (jogos arquivados a partir da v14) — imune a
+            // números de camisola repetidos/trocados. Cai para casamento por
+            // número em jogos arquivados antes desta versão.
+            var titularIds;
+            var hasPlayerIds = (h.rows||[]).some(function(r){ return !!r.playerId; });
+            if(hasPlayerIds){
+              var titularPidSet = {};
+              (h.rows||[]).forEach(function(r){ if(r.titular==="Sim" && r.playerId) titularPidSet[r.playerId] = true; });
+              titularIds = playersList.filter(function(p){ return titularPidSet[p.id]; }).map(function(p){return p.id;});
+            } else {
+              var titularNums = {};
+              (h.rows||[]).forEach(function(r){ if(r.titular==="Sim") titularNums[String(r.num)] = true; });
+              titularIds = playersList.filter(function(p){ return titularNums[String(p.num)]; }).map(function(p){return p.id;});
+            }
             downloadTimeline(h.match, h.events, playersList, titularIds, (h.score||{}).nos||0, (h.score||{}).advers||0);
           }
         });

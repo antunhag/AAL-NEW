@@ -93,6 +93,32 @@ número no `plantel.csv` assim que possível.
   nada de preencher grelha de minutos à mão. Abre em qualquer navegador e
   pode ser partilhada como ficheiro.
 
+### Novidades da versão `v13`
+
+- **Timeline mais legível.** O marcador de cartão (🟨/🟥) ficou mais pequeno,
+  proporcional ao dos golos e faltas.
+- **Minutos em campo na timeline.** Cada linha da timeline mostra agora
+  quantos minutos esse atleta esteve em campo naquela parte, e há uma nova
+  tabela "Minutos em campo (total do jogo)" no fim da página, somando todas
+  as partes por atleta.
+
+### Novidades da versão `v14`
+
+- **Marcador de cartão ainda mais pequeno na timeline.** O quadradinho do
+  cartão (🟨/🟥) ficou mais pequeno e sem contorno à volta, para não parecer
+  maior do que os outros marcadores (golo, falta).
+
+### Novidades da versão `v15`
+
+- **Números de camisola repetidos já não confundem estatísticas arquivadas.**
+  Cada linha de um jogo guardado no histórico passa a levar consigo a
+  identidade interna do atleta (não só o número/nome). Antes, se dois atletas
+  chegassem a partilhar o mesmo número (ex.: um deles muda de número mais
+  tarde, ou usam equipamentos diferentes num jogo pontual), reabrir a timeline
+  ou corrigir um jogo antigo podia atribuir minutos/golos ao atleta errado —
+  isto já não acontece. Jogos arquivados antes desta versão continuam a
+  funcionar (usam o método antigo como reserva).
+
 Para atualizar o plantel (entrada/saída de atleta, mudança de posição):
 
 1. Abre `plantel.csv` neste repositório no GitHub.
@@ -126,7 +152,7 @@ Esta pasta (`index.html`, `manifest.json`, `sw.js`, `icons/`) é publicada tal e
 pelo GitHub Pages. Para publicar uma versão nova:
 
 1. Substitui os ficheiros neste repositório pelos novos (o Claude prepara-os).
-2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v12"`) —
+2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v15"`) —
    tem de mudar a cada atualização.
 3. Aguarda ~1 minuto pelo GitHub Pages e testa em `https://antunhag.github.io/AAL-NEW/`.
 
