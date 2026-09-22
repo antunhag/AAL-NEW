@@ -22,6 +22,8 @@
     --yellow:#F4B400;
     --red:#D6392E;
     --bench:#7C8B80;
+    --gr:#2D6FE0;
+    --gr-ink:#FFFFFF;
     --shadow: 0 1px 2px rgba(18,38,28,.06), 0 4px 14px rgba(18,38,28,.08);
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
@@ -41,6 +43,8 @@
       --yellow:#F7C948;
       --red:#F0564A;
       --bench:#5E7268;
+      --gr:#5B9BFF;
+      --gr-ink:#071127;
       --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.35);
     }
   }
@@ -58,6 +62,8 @@
     --yellow:#F7C948;
     --red:#F0564A;
     --bench:#5E7268;
+    --gr:#5B9BFF;
+    --gr-ink:#071127;
     --shadow: 0 1px 2px rgba(0,0,0,.3), 0 6px 18px rgba(0,0,0,.35);
   }
 
@@ -164,6 +170,11 @@
   .pchip .min{position:absolute; bottom:4px; right:6px; font-size:9.5px; color:var(--ink-dim); font-variant-numeric:tabular-nums;}
   .pchip.selected{outline:2px solid var(--accent);}
   .pchip.dim{opacity:.45;}
+  /* Guarda-redes destacado com cor própria — fácil de identificar de relance
+     em quadra/banco/convocatória, sem depender de ler a etiqueta de posição. */
+  .pchip.gr{background:color-mix(in srgb, var(--gr) 16%, var(--surface-2)); border-color:var(--gr);}
+  .pchip.gr .n{color:var(--gr);}
+  .pchip.gr .pos{color:var(--gr); opacity:.9;}
   .checkbox-chip::before{
     content:""; position:absolute; top:5px; left:5px; width:14px; height:14px; border-radius:4px;
     border:1.5px solid var(--ink-dim); background:var(--surface);
@@ -287,6 +298,10 @@
   // (a nossa, no caso de um golo sofrido), 10-12 = mais perto do meio-campo.
   var ZONAS_GOLO = [1,2,3,4,5,6,7,8,9,10,11,12];
   function isGoleiro(p){ return !!p && p.pos === "Guarda-Redes"; }
+  // Classe extra para destacar visualmente o guarda-redes nos "chips" de
+  // jogador (cor diferente do resto do plantel) — mais fácil de identificar
+  // de relance em quadra/banco/convocatória.
+  function chipCls(p){ return isGoleiro(p) ? " gr" : ""; }
   function periodLabel(n){
     n = n||1;
     if(n===1) return "1ª Parte";
@@ -1441,7 +1456,7 @@
     openSheet(
       '<h3>Quem entra?</h3><div class="sub">Sai #'+esc(outP.num)+' '+esc(outP.name)+' ('+esc(outP.pos)+') — sugeridos primeiro os da mesma posição</div>'+
       '<div class="pgrid">'+bench.map(function(p){
-        return '<div class="pchip" data-in="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
+        return '<div class="pchip'+chipCls(p)+'" data-in="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
       }).join("")+'</div>'+
       '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="fechar">Cancelar</button></div>',
       function(sheet){
@@ -1471,7 +1486,7 @@
     openSheet(
       '<h3>Quem sai?</h3><div class="sub">Quadra completa (5) — escolhe quem sai para entrar #'+esc(inP.num)+' ('+esc(inP.pos)+')</div>'+
       '<div class="pgrid">'+onc.map(function(p){
-        return '<div class="pchip" data-out="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
+        return '<div class="pchip'+chipCls(p)+'" data-out="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
       }).join("")+'</div>'+
       '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="fechar">Cancelar</button></div>',
       function(sheet){
@@ -1490,7 +1505,7 @@
     openSheet(
       '<h3>Quem marcou?</h3><div class="sub">Toca no marcador</div>'+
       '<div class="pgrid">'+onc.map(function(p){
-        return '<div class="pchip" data-scorer="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
+        return '<div class="pchip'+chipCls(p)+'" data-scorer="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
       }).join("")+'</div>'+
       '<div class="btn-row" style="margin-top:14px;"><button class="btn ghost block" data-act="fechar">Cancelar</button></div>',
       function(sheet){
@@ -1507,7 +1522,7 @@
     openSheet(
       '<h3>Assistência?</h3><div class="sub">Opcional — toca em "sem assistência" se não houver</div>'+
       '<div class="pgrid">'+onc.map(function(p){
-        return '<div class="pchip" data-assist="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
+        return '<div class="pchip'+chipCls(p)+'" data-assist="'+p.id+'"><div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
       }).join("")+'</div>'+
       '<div class="btn-row" style="margin-top:14px;"><button class="btn primary block" data-act="sem">Sem assistência</button></div>',
       function(sheet){
@@ -1725,7 +1740,7 @@
         (state.roster.length===0 ? '<div class="empty">Adiciona atletas na aba Plantel primeiro.</div>' :
         '<div class="pgrid">'+state.roster.map(function(p){
           var checked = m.convocadoIds.indexOf(p.id)>-1;
-          return '<div class="pchip checkbox-chip'+(checked?' checked':'')+'" data-conv="'+p.id+'" style="padding-left:22px;">'+
+          return '<div class="pchip checkbox-chip'+(checked?' checked':'')+chipCls(p)+'" data-conv="'+p.id+'" style="padding-left:22px;">'+
                  '<div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div></div>';
         }).join("")+'</div>')+
       '</div>'+
@@ -1734,7 +1749,7 @@
         (conv.length===0 ? '<div class="empty">Seleciona os convocados acima primeiro.</div>' :
         '<div class="pgrid">'+conv.map(function(p){
           var sel = state.onCourt.indexOf(p.id)>-1;
-          return '<div class="pchip'+(sel?' selected':'')+'" data-tit="'+p.id+'">'+
+          return '<div class="pchip'+(sel?' selected':'')+chipCls(p)+'" data-tit="'+p.id+'">'+
                  '<div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div><div class="pos">'+esc(posAbbr(p))+'</div></div>';
         }).join("")+'</div>')+
         '<div class="hint">Toca para marcar quem começa em quadra (máx. 5). Podes ajustar tudo depois com substituições.</div>'+
@@ -1786,7 +1801,7 @@
     var rc = state.events.filter(function(e){return e.type==="cartao_vermelho" && e.playerId===p.id;}).length;
     var inTreat = state.treatment && state.treatment.playerId===p.id;
     var mins = Math.floor(playerSeconds(p.id)/60);
-    return '<div class="pchip" data-player="'+p.id+'">'+
+    return '<div class="pchip'+chipCls(p)+'" data-player="'+p.id+'">'+
       '<div class="badges">'+(yc?'<span class="b y"></span>':'')+(rc?'<span class="b r"></span>':'')+'</div>'+
       (inTreat?'<span class="inj">🩹</span>':'')+
       '<div class="n">#'+esc(p.num)+'</div><div class="nm">'+esc(p.name)+'</div>'+

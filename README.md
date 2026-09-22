@@ -119,6 +119,13 @@ número no `plantel.csv` assim que possível.
   isto já não acontece. Jogos arquivados antes desta versão continuam a
   funcionar (usam o método antigo como reserva).
 
+### Novidades da versão `v16`
+
+- **Guarda-redes com cor própria.** Em todos os ecrãs com "chips" de atleta
+  (convocatória, cinco inicial, em campo, banco, escolher marcador/assistência,
+  substituições), o guarda-redes destaca-se agora com uma cor diferente do
+  resto do plantel — mais fácil de identificar de relance.
+
 Para atualizar o plantel (entrada/saída de atleta, mudança de posição):
 
 1. Abre `plantel.csv` neste repositório no GitHub.
@@ -152,7 +159,7 @@ Esta pasta (`index.html`, `manifest.json`, `sw.js`, `icons/`) é publicada tal e
 pelo GitHub Pages. Para publicar uma versão nova:
 
 1. Substitui os ficheiros neste repositório pelos novos (o Claude prepara-os).
-2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v15"`) —
+2. **Importante:** o `sw.js` tem uma constante `CACHE` (ex.: `"banco-sub15-v16"`) —
    tem de mudar a cada atualização.
 3. Aguarda ~1 minuto pelo GitHub Pages e testa em `https://antunhag.github.io/AAL-NEW/`.
 
