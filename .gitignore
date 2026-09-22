@@ -1,0 +1,5 @@
+.DS_Store
+*.bak
+
+# Dados locais/pessoais (backups, planilhas, exports) — nunca vão para o repo público
+Claude-Hist/
